@@ -21,6 +21,12 @@ module.exports = {
             },
         },
     },
+    pluginOptions: {
+        "less-loader":{
+            preProcessor:'less',
+            // patterns:[path.resolve()]
+        }
+    },
     // 开启gzip压缩
     configureWebpack: () => {
         if (process.env.NODE_ENV === "production") {
