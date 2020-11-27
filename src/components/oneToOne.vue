@@ -98,7 +98,7 @@ export default {
             };
             this.ws.onmessage = (e) => {
                 let { data, userId, targetUserId } = JSON.parse(e.data).data;
-                console.log('socket监听1', JSON.parse(e.data).data);
+                console.log('socket监听', JSON.parse(e.data).data);
                 //不允许自己发给自己
                 if (this.localUserId == userId) {
                     return;
