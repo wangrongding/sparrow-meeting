@@ -74,11 +74,11 @@ export default {
                 ],
             },
             pc: {},
+            answer: 0,
         };
     },
     created() {
         this.initSocket();
-        this.connect();
     },
     methods: {
         initSocket() {
@@ -87,12 +87,20 @@ export default {
             // 基于订阅，把房间id作为主题
             this.subject = 'private-video-room-' + this.joinForm.roomId;
             this.ws.onopen = () => {
+                this.connect();
                 this.subscribe(this.subject); //加入房间
                 console.log('websocket opened');
             };
             this.ws.onmessage = (e) => {
-                let { data, userId, targetUserId } = JSON.parse(e.data).data;
-                console.log('socket监听', JSON.parse(e.data).data);
+                let { data, userId, targetUserId, label, sdp } = JSON.parse(
+                    e.data
+                ).data;
+                console.log(
+                    'socket监听onmessage',
+                    JSON.parse(e.data).data,
+                    'data',
+                    JSON.parse(e.data)
+                );
                 //不允许自己发给自己
                 if (this.localUserId == userId) {
                     return;
@@ -101,38 +109,135 @@ export default {
                 if (targetUserId && targetUserId != this.localUserId) {
                     return;
                 }
-                /*  if (!this.localStream) {
-                    return;
-                } */
                 switch (JSON.parse(e.data).event) {
                     case 'client-call':
-                        // debugger;
-                        this.autoSetupCall(userId);
+                        console.log('*****call');
+                        this.icecandidate(this.localStream);
+                        this.createOffer();
                         break;
                     case 'client-answer':
-                        this.handleRemoteAnswer(data.sdp, userId);
+                        this.pc.setRemoteDescription(
+                            new RTCSessionDescription({
+                                type: 'answer',
+                                sdp: sdp,
+                            })
+                        );
+                        console.log('****answer');
                         break;
                     case 'client-offer':
-                        this.handleRemoteOffer(data.sdp, userId);
+                        console.log('client-offer');
+                        this.icecandidate(this.localStream);
+                        this.pc.setRemoteDescription(
+                            new RTCSessionDescription({
+                                type: 'offer',
+                                sdp: sdp,
+                            }),
+                            () => {
+                                this.pc.createAnswer(
+                                    (desc) => {
+                                        this.pc.setLocalDescription(
+                                            desc,
+                                            () => {
+                                                this.publish(
+                                                    'client-answer',
+                                                    this.pc.localDescription
+                                                );
+                                            },
+                                            (e) => {
+                                                alert(e);
+                                            }
+                                        );
+                                    },
+                                    (e) => {
+                                        alert(e);
+                                    }
+                                );
+                            },
+                            (e) => {
+                                alert(e);
+                            }
+                        );
+                        console.log('****offer');
                         break;
                     case 'client-candidate':
-                        this.handleRemoteCandidate(
-                            data.label,
-                            data.candidate,
-                            userId
+                        console.log('******candidate');
+                        this.pc.addIceCandidate(
+                            new RTCIceCandidate(JSON.parse(e.data).data)
                         );
                         break;
                 }
             };
-            this.ws.onerror = function (e) {
+            this.ws.onerror = (e) => {
                 console.log('wserror', e);
             };
         },
+        createOffer() {
+            this.pc
+                .createOffer({ offerToReceiveAudio: 1, offerToReceiveVideo: 1 })
+                .then((desc) => {
+                    this.createOfferAndSendMessage(desc),
+                        this.handleCreateOfferError(desc);
+                });
+        },
+        handleCreateOfferError(event) {
+            console.log('CreateOffer() error: ', event);
+        },
+        createOfferAndSendMessage(sessionDescription) {
+            console.log('CreateOfferSdp:', sessionDescription);
+            this.pc.setLocalDescription(sessionDescription);
+            var message = {
+                sdp: sessionDescription.sdp,
+            };
+            this.publish(
+                'client-offer',
+                message,
+                this.localUserId,
+                this.remoteUserId
+            );
+            console.log('Broadcast Offer:', message);
+        },
+        createAnswerAndSendMessage(sessionDescription) {
+            console.log('CreateAnswerSdp:', sessionDescription);
+            this.pc.setLocalDescription(sessionDescription);
+            var message = {
+                sdp: sessionDescription.sdp,
+            };
+            this.publish(
+                'client-answer',
+                message,
+                this.localUserId,
+                this.remoteUserId
+            );
+            console.log('Broadcast Answer:', message);
+        },
+        icecandidate(localStream) {
+            this.pc = new RTCPeerConnection(this.configuration);
+            this.pc.onicecandidate = (event) => {
+                // console.log('onicecandidate', event);
+                if (event.candidate) {
+                    this.publish('client-candidate', event.candidate);
+                }
+            };
+            const tracks = localStream.getTracks();
+            for (let i = 0; i < tracks.length; i++) {
+                this.pc.addTrack(tracks[i], localStream);
+            }
+            this.pc.ontrack = (e) => {
+                // debugger;
+                console.log(e, '*********onaddstream');
+                let remoteVidoe = document.createElement('video');
+                remoteVidoe.autoplay = 'autoplay';
+                remoteVidoe.srcObject = e.streams[0];
+                document
+                    .getElementsByClassName('videos')[0]
+                    .appendChild(remoteVidoe);
+            };
+        },
         //发送websocket消息
-        publish(event, data, localUserId, targetUserId = null) {
+        publish(event, data) {
             // debugger;
-            data.userId = localUserId;
-            data.targetUserId = targetUserId;
+            // data.userId = localUserId;
+            // data.targetUserId = targetUserId;
             let jsonstr = JSON.stringify({
                 cmd: 'publish',
                 subject: this.subject,
@@ -140,12 +245,6 @@ export default {
                 data: data,
             });
             this.ws.send(jsonstr);
-        },
-        getUrlParam(name) {
-            var reg = new RegExp('(^|&)' + name + '=([^&]*)(&|$)');
-            var r = window.location.search.substr(1).match(reg);
-            if (r != null) return unescape(r[2]);
-            return null;
         },
         //加入房间
         subscribe(subject) {
@@ -164,217 +263,25 @@ export default {
         connect() {
             navigator.mediaDevices
                 .getUserMedia({
-                    audio: true, //暂时关闭
+                    audio: true,
                     video: true,
                 })
                 .then((stream) => {
-                    console.log(stream, 'stream====================');
-                    this.openLocalStream(stream);
+                    console.log(stream, 'stream========');
+                    let localVideo = document.getElementById('localVideo');
+                    localVideo.srcObject = stream;
+                    this.localStream = stream;
+                    localVideo.addEventListener('loadedmetadata', () => {
+                        console.log('视频加载完毕', this.localStream);
+                        console.log('localUserId', this.localUserId);
+                        let msg = {};
+                        this.publish('client-call', msg, this.localUserId);
+                    });
+                    // this.openLocalStream(stream);
                 })
                 .catch((e) => {
                     alert(e);
                 });
-        },
-
-        // After joined room, remote peers will `autoSetupCall`, send offer
-        handleRemoteOffer(sdp, remoteUserId) {
-            console.log('Remote offer received: ', remoteUserId);
-            // set remote sdp
-            var sdpData = new RTCSessionDescription({
-                type: 'offer',
-                sdp: sdp,
-            });
-            console.log('setRemoteDescription & Answer call: ', remoteUserId);
-            this.peerConnections[remoteUserId] = new RTCPeerConnectionWrapper(
-                this.localUserId,
-                this.remoteUserId,
-                this.localStream,
-                this.configuration
-            );
-            this.peerConnections[remoteUserId].setRemoteDescription(sdpData);
-            this.peerConnections[remoteUserId].createAnswer();
-
-            //================================================
-        },
-
-        //================================================
-        createRTCPeerConnection(stream, configuration) {
-            this.pc = new RTCPeerConnection(configuration);
-            this.pc.onicecandidate = this.handleIceCandidate.bind(this);
-            this.pc.onaddstream = this.handleRemoteStreamAdded.bind(this);
-            this.pc.onremovestream = this.handleRemoteStreamRemoved.bind(this);
-            this.pc.addStream(stream);
-            return pc;
-        },
-        handleIceCandidate(event) {
-            if (event.candidate) {
-                var message = {
-                    id: event.candidate.sdpMid,
-                    label: event.candidate.sdpMLineIndex,
-                    candidate: event.candidate.candidate,
-                };
-                publish(
-                    'client-candidate',
-                    message,
-                    localUserId,
-                    this.remoteUserId
-                );
-                console.log('Broadcast Candidate:', message);
-            } else {
-                console.log('End of candidates.');
-            }
-        },
-        handleRemoteStreamAdded(event) {
-            console.log('Remote stream added: ', this.remoteUserId);
-            addVideo(this.remoteUserId, event.stream);
-        },
-        handleRemoteStreamRemoved(event) {
-            console.log('Handle remote stream removed.');
-        },
-        createOffer() {
-            this.pc.createOffer(
-                this.createOfferAndSendMessage.bind(this),
-                this.handleCreateOfferError.bind(this)
-            );
-        },
-        createAnswer() {
-            this.pc
-                .createAnswer()
-                .then(
-                    this.createAnswerAndSendMessage.bind(this),
-                    this.handleCreateAnswerError.bind(this)
-                );
-        },
-        createOfferAndSendMessage(sessionDescription) {
-            console.log('CreateOfferSdp:', sessionDescription);
-            this.pc.setLocalDescription(sessionDescription);
-            var message = {
-                sdp: sessionDescription.sdp,
-            };
-            publish('client-offer', message, localUserId, this.remoteUserId);
-            console.log('Broadcast Offer:', message);
-        },
-        createAnswerAndSendMessage(sessionDescription) {
-            console.log('CreateAnswerSdp:', sessionDescription);
-            this.pc.setLocalDescription(sessionDescription);
-            var message = {
-                sdp: sessionDescription.sdp,
-            };
-            publish('client-answer', message, localUserId, this.remoteUserId);
-            console.log('Broadcast Answer:', message);
-        },
-        handleCreateOfferError(event) {
-            console.log('CreateOffer() error: ', event);
-        },
-        handleCreateAnswerError(error) {
-            console.log('CreateAnswer() error: ', error);
-        },
-        setRemoteDescription(sessionDescription) {
-            if (this.remoteSdp != null) {
-                return;
-            }
-            this.remoteSdp = sessionDescription;
-            this.pc.setRemoteDescription(sessionDescription);
-        },
-        addIceCandidate(candidate) {
-            this.pc.addIceCandidate(candidate);
-        },
-        //================================================
-        // After `autoSetupCall`, wait for the remote peer anwser the offer
-        handleRemoteAnswer(sdp, remoteUserId) {
-            console.log('Remote answer received: ', remoteUserId);
-            if (peerConnections[remoteUserId] == null) {
-                console.log(
-                    'Invlid state, can not find the offerer ',
-                    remoteUserId
-                );
-                return;
-            }
-            var sdpData = new RTCSessionDescription({
-                type: 'answer',
-                sdp: sdp,
-            });
-            this.peerConnections[remoteUserId].setRemoteDescription(sdpData);
-        },
-
-        handleRemoteCandidate(label, candidate, remoteUserId) {
-            console.log('Remote candidate received: ', remoteUserId);
-            if (this.peerConnections[remoteUserId] == null) {
-                console.log(
-                    'Invlid state, can not find the offerer ',
-                    remoteUserId
-                );
-                return;
-            }
-            var candidateData = new RTCIceCandidate({
-                sdpMLineIndex: label,
-                candidate: candidate,
-            });
-            this.peerConnections[remoteUserId].addIceCandidate(candidateData);
-        },
-
-        handleRemoteHangup(remoteUserId) {
-            console.log('Remote hangup received: ', remoteUserId);
-            if (peerConnections[remoteUserId] == null) {
-                console.log(
-                    'Invlid state, can not find the offerer ',
-                    remoteUserId
-                );
-                return;
-            }
-            this.peerConnections[remoteUserId].close();
-        },
-        openLocalStream(stream) {
-            console.log('Open local video stream');
-            let localVideo = document.getElementById('localVideo');
-            localVideo.srcObject = stream;
-            this.localStream = stream;
-            localVideo.addEventListener('loadedmetadata', () => {
-                console.log('视频加载完毕', this.localStream);
-                console.log('localUserId', this.localUserId);
-                let msg = {};
-                this.publish('client-call', msg, this.localUserId);
-            });
-        },
-        // auto setup call by create & send offer when remote user joined room
-        autoSetupCall(remoteUserId) {
-            // debugger;
-            console.log(
-                'autoSetupCall: Sending offer to remote peer:',
-                remoteUserId,
-                this.peerConnections
-            );
-            if (this.peerConnections[remoteUserId] == null) {
-                this.peerConnections[
-                    remoteUserId
-                ] = new RTCPeerConnectionWrapper(
-                    this.localUserId,
-                    this.remoteUserId,
-                    this.localStream,
-                    this.configuration
-                );
-            }
-            this.peerConnections[remoteUserId].createOffer();
-        },
-
-        sendMessage(event, message) {
-            socket.send(event, message);
-        },
-        addVideo(userId, stream) {
-            //如果追加的视频和本地是一样的则不处理
-            console.log(userId);
-            // if (localUserId == userId) {
-            //     return;
-            // }
-            if (userId) {
-                let remote =
-                    "<video id='" +
-                    userId +
-                    "' class='remoteVideo' autoplay style='width: 640px;height: 480px;'></video>";
-                document.querySelector('.videos').append(remote);
-                let remoteVideo = document.getElementById(userId);
-                remoteVideo.srcObject = stream;
-            }
         },
     },
 };
@@ -390,6 +297,9 @@ export default {
         width: 300px;
         height: 100px;
         margin: 0 auto;
+    }
+    .hidden {
+        display: none;
     }
     .joinBox {
         z-index: 999;

@@ -41,13 +41,7 @@
             <video
                 id="localVideo"
                 autoplay
-                style="width: 640px;height: 480px;"
-            ></video>
-            <video
-                id="remoteVideo"
-                class="hidden"
-                style="width: 640px;height: 480px;"
-                autoplay
+                style="width: 800px;height: 400;"
             ></video>
         </div>
     </div>
@@ -80,6 +74,7 @@ export default {
                 ],
             },
             pc: {},
+            answer: 0,
         };
     },
     created() {
@@ -97,8 +92,15 @@ export default {
                 console.log('websocket opened');
             };
             this.ws.onmessage = (e) => {
-                let { data, userId, targetUserId } = JSON.parse(e.data).data;
-                console.log('socket监听', JSON.parse(e.data).data);
+                let { data, userId, targetUserId, label, sdp } = JSON.parse(
+                    e.data
+                ).data;
+                console.log(
+                    'socket监听onmessage',
+                    JSON.parse(e.data).data,
+                    'data',
+                    JSON.parse(e.data)
+                );
                 //不允许自己发给自己
                 if (this.localUserId == userId) {
                     return;
@@ -111,23 +113,53 @@ export default {
                     case 'client-call':
                         console.log('*****call');
                         this.icecandidate(this.localStream);
+                        this.createOffer();
                         break;
                     case 'client-answer':
-                        this.createOffer();
+                        this.pc.setRemoteDescription(
+                            new RTCSessionDescription({
+                                type: 'answer',
+                                sdp: sdp,
+                            })
+                        );
                         console.log('****answer');
                         break;
                     case 'client-offer':
-                        this.createOffer();
+                        console.log('client-offer');
+                        this.icecandidate(this.localStream);
+                        this.pc.setRemoteDescription(
+                            new RTCSessionDescription({
+                                type: 'offer',
+                                sdp: sdp,
+                            }),
+                            () => {
+                                this.pc.createAnswer(
+                                    (desc) => {
+                                        this.pc.setLocalDescription(
+                                            desc,
+                                            () => {
+                                                this.publish(
+                                                    'client-answer',
+                                                    this.pc.localDescription
+                                                );
+                                            },
+                                            (e) => {
+                                                alert(e);
+                                            }
+                                        );
+                                    },
+                                    (e) => {
+                                        alert(e);
+                                    }
+                                );
+                            }
+                        );
                         console.log('****offer');
                         break;
                     case 'client-candidate':
                         console.log('******candidate');
                         this.pc.addIceCandidate(
-                            new RTCIceCandidate(JSON.parse(e.data)),
-                            () => {},
-                            (e) => {
-                                alert(e);
-                            }
+                            new RTCIceCandidate(JSON.parse(e.data).data)
                         );
                         break;
                 }
@@ -137,10 +169,12 @@ export default {
             };
         },
         createOffer() {
-            this.pc.createOffer(
-                this.createOfferAndSendMessage(),
-                this.handleCreateOfferError()
-            );
+            this.pc
+                .createOffer({ offerToReceiveAudio: 1, offerToReceiveVideo: 1 })
+                .then((desc) => {
+                    this.createOfferAndSendMessage(desc),
+                        this.handleCreateOfferError(desc);
+                });
         },
         handleCreateOfferError(event) {
             console.log('CreateOffer() error: ', event);
@@ -151,7 +185,7 @@ export default {
             var message = {
                 sdp: sessionDescription.sdp,
             };
-            publish(
+            this.publish(
                 'client-offer',
                 message,
                 this.localUserId,
@@ -160,12 +194,13 @@ export default {
             console.log('Broadcast Offer:', message);
         },
         createAnswerAndSendMessage(sessionDescription) {
+            
             console.log('CreateAnswerSdp:', sessionDescription);
             this.pc.setLocalDescription(sessionDescription);
             var message = {
                 sdp: sessionDescription.sdp,
             };
-            publish(
+            this.publish(
                 'client-answer',
                 message,
                 this.localUserId,
@@ -175,55 +210,26 @@ export default {
         },
         icecandidate(localStream) {
             this.pc = new RTCPeerConnection(this.configuration);
-
             this.pc.onicecandidate = (event) => {
-                console.log('onicecandidate', event);
+                // console.log('onicecandidate', event);
                 if (event.candidate) {
-                    // debugger;
                     this.publish('client-candidate', event.candidate);
                 }
             };
-
-            try {
-                console.log('try,addStream', localStream);
-                // debugger;
-                this.pc.addStream(localStream);
-            } catch (e) {
-                console.log('catch,addStream', e);
-                console.log(localStream, 'localStream');
-                const tracks = localStream.getTracks();
-                for (let i = 0; i < tracks.length; i++) {
-                    this.pc.addTrack(tracks[i], localStream);
-                }
+            const tracks = localStream.getTracks();
+            for (let i = 0; i < tracks.length; i++) {
+                this.pc.addTrack(tracks[i], localStream);
             }
             this.pc.ontrack = (e) => {
-                debugger;
+                // debugger;
                 console.log(e, '*********onaddstream');
-                let remoteVidoe = document.getElementById('remoteVidoe');
-                remoteVidoe.classList.remove('hidden');
-                remoteVideo.srcObject = e.stream;
-                // remoteVideo.srcObject = e.streams[0];
+                let remoteVidoe = document.createElement('video');
+                remoteVidoe.autoplay = 'autoplay';
+                remoteVidoe.srcObject = e.streams[0];
+                document
+                    .getElementsByClassName('videos')[0]
+                    .appendChild(remoteVidoe);
             };
-        },
-        pcCreateOffer() {
-            this.pc
-                .createOffer({
-                    offerToReceiveAudio: 1,
-                    offerToReceiveVideo: 1,
-                })
-                .then((desc) => {
-                    this.pc
-                        .setLocalDescription(desc)
-                        .then(() => {
-                            publish('client-offer', pc.localDescription);
-                        })
-                        .catch((e) => {
-                            alert(e);
-                        });
-                })
-                .catch((e) => {
-                    alert(e);
-                });
         },
         //发送websocket消息
         publish(event, data) {
@@ -255,8 +261,16 @@ export default {
         connect() {
             navigator.mediaDevices
                 .getUserMedia({
-                    audio: true,
-                    video: true,
+                    audio: {
+                        echoCancellation: true, //使用回声消除来尝试去除通过麦克风回传到扬声器的音频
+                        noiseSuppression: true, //去除音频信号中的背景噪声
+                        channelCount: 2, //立体音
+                    },
+                    video: {
+                        width: 640,
+                        height: 350,
+                        frameRate: { ideal: 60, max: 60 },
+                    },
                 })
                 .then((stream) => {
                     console.log(stream, 'stream========');
@@ -272,7 +286,7 @@ export default {
                     // this.openLocalStream(stream);
                 })
                 .catch((e) => {
-                    alert(e);
+                    alert(e + '============getUserMedia');
                 });
         },
     },
