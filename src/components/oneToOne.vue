@@ -40,8 +40,10 @@
         <div class="videos">
             <video
                 id="localVideo"
+                width="640"
+                height="350"
                 autoplay
-                style="width: 800px;height: 400;"
+                muted="true"
             ></video>
         </div>
     </div>
@@ -79,6 +81,20 @@ export default {
     },
     created() {
         this.initSocket();
+        /* window.onbeforeunload = function () {
+            setTimeout(onunloadcancel, 10);
+            return '真的离开?';
+        };
+
+        window.onunloadcancel = function () {
+            console.log('close');
+            this.pc.close();
+        }; */
+    },
+    destroyed() {
+        /*  if (this.pc) {
+            this.pc.close();
+        } */
     },
     methods: {
         initSocket() {
@@ -89,18 +105,13 @@ export default {
             this.ws.onopen = () => {
                 this.connect();
                 this.subscribe(this.subject); //加入房间
-                console.log('websocket opened');
+                // console.log('websocket opened');
             };
             this.ws.onmessage = (e) => {
-                let { data, userId, targetUserId, label, sdp } = JSON.parse(
+                let { userId, targetUserId, label, sdp } = JSON.parse(
                     e.data
                 ).data;
-                console.log(
-                    'socket监听onmessage',
-                    JSON.parse(e.data).data,
-                    'data',
-                    JSON.parse(e.data)
-                );
+                let data = JSON.parse(e.data).data;
                 //不允许自己发给自己
                 if (this.localUserId == userId) {
                     return;
@@ -111,8 +122,8 @@ export default {
                 }
                 switch (JSON.parse(e.data).event) {
                     case 'client-call':
-                        console.log('*****call');
-                        this.icecandidate(this.localStream);
+                        console.log('userId', userId);
+                        this.createPc(this.localStream);
                         this.createOffer();
                         break;
                     case 'client-answer':
@@ -122,51 +133,71 @@ export default {
                                 sdp: sdp,
                             })
                         );
-                        console.log('****answer');
                         break;
                     case 'client-offer':
-                        console.log('client-offer');
-                        this.icecandidate(this.localStream);
-                        this.pc.setRemoteDescription(
-                            new RTCSessionDescription({
-                                type: 'offer',
-                                sdp: sdp,
-                            }),
-                            () => {
-                                this.pc.createAnswer(
-                                    (desc) => {
-                                        this.pc.setLocalDescription(
-                                            desc,
-                                            () => {
-                                                this.publish(
-                                                    'client-answer',
-                                                    this.pc.localDescription
-                                                );
-                                            },
-                                            (e) => {
-                                                alert(e);
-                                            }
-                                        );
-                                    },
-                                    (e) => {
-                                        alert(e);
-                                    }
-                                );
-                            }
-                        );
-                        console.log('****offer');
+                        console.log('userId', userId);
+                        this.handleRemoteOffer(sdp, userId);
                         break;
                     case 'client-candidate':
-                        console.log('******candidate');
-                        this.pc.addIceCandidate(
-                            new RTCIceCandidate(JSON.parse(e.data).data)
+                        this.handleRemoteCandidate(
+                            data.label,
+                            data.candidate,
+                            userId
                         );
                         break;
                 }
             };
             this.ws.onerror = (e) => {
-                console.log('wserror', e);
+                console.error('wserror', e);
             };
+        },
+        handleRemoteOffer(sdp, remoteUserId) {
+            // set remote sdp
+            var sdpData = new RTCSessionDescription({
+                type: 'offer',
+                sdp: sdp,
+            });
+            this.createPc(this.localStream);
+            this.pc.setRemoteDescription(sdpData);
+            this.pc.createAnswer().then(
+                (desc) => {
+                    this.createAnswerAndSendMessage(desc);
+                },
+                (e) => {
+                    console.error('client-offer中捕获的错误', e);
+                }
+            );
+        },
+        createAnswerAndSendMessage(desc) {
+            // console.log('CreateAnswerSdp:', desc);
+            this.pc.setLocalDescription(desc).catch((e) => {
+                console.error('createAnswerAndSendMessage中捕获的 错误', e);
+            });
+            var message = {
+                sdp: desc.sdp,
+            };
+            this.publish(
+                'client-answer',
+                message,
+                this.localUserId,
+                this.remoteUserId
+            );
+            // console.log('Broadcast Answer:', message);
+        },
+        handleRemoteCandidate(label, candidate, remoteUserId) {
+            /* console.log('Remote candidate received: ', remoteUserId);
+            if (peerConnections[remoteUserId] == null) {
+                console.log(
+                    'Invlid state, can not find the offerer ',
+                    remoteUserId
+                );
+                return;
+            } */
+            var candidateData = new RTCIceCandidate({
+                sdpMLineIndex: label,
+                candidate: candidate,
+            });
+            this.pc.addIceCandidate(candidateData);
         },
         createOffer() {
             this.pc
@@ -180,7 +211,7 @@ export default {
             console.log('CreateOffer() error: ', event);
         },
         createOfferAndSendMessage(sessionDescription) {
-            console.log('CreateOfferSdp:', sessionDescription);
+            // console.log('CreateOfferSdp:', sessionDescription);
             this.pc.setLocalDescription(sessionDescription);
             var message = {
                 sdp: sessionDescription.sdp,
@@ -191,51 +222,115 @@ export default {
                 this.localUserId,
                 this.remoteUserId
             );
-            console.log('Broadcast Offer:', message);
+            // console.log('Broadcast Offer:', message);
         },
-        createAnswerAndSendMessage(sessionDescription) {
-            
-            console.log('CreateAnswerSdp:', sessionDescription);
-            this.pc.setLocalDescription(sessionDescription);
-            var message = {
-                sdp: sessionDescription.sdp,
-            };
-            this.publish(
-                'client-answer',
-                message,
-                this.localUserId,
-                this.remoteUserId
-            );
-            console.log('Broadcast Answer:', message);
-        },
-        icecandidate(localStream) {
+
+        createPc(localStream) {
             this.pc = new RTCPeerConnection(this.configuration);
+            this.pc.onaddstream = this.handleRemoteStreamAdded();
+            // this.pc.onicecandidate = this.handleIceCandidate(event);
             this.pc.onicecandidate = (event) => {
-                // console.log('onicecandidate', event);
                 if (event.candidate) {
-                    this.publish('client-candidate', event.candidate);
+                    var message = {
+                        id: event.candidate.sdpMid,
+                        label: event.candidate.sdpMLineIndex,
+                        candidate: event.candidate.candidate,
+                    };
+                    this.publish(
+                        'client-candidate',
+                        message,
+                        this.localUserId,
+                        this.remoteUserId
+                    );
+                } else {
+                    console.log('peerConnections', this.pc);
+                    console.log('End of candidates.');
                 }
             };
+            this.pc.onremovestream = this.handleRemoteStreamRemoved();
+            this.pc.onconnectionstatechange = this.handleConnectionstatechange();
             const tracks = localStream.getTracks();
             for (let i = 0; i < tracks.length; i++) {
                 this.pc.addTrack(tracks[i], localStream);
             }
+        },
+        handleRemoteStreamRemoved() {
+            console.log('Handle remote stream removed.');
+        },
+        removeVideo(userId) {
+            var video = document.getElementById(userId);
+            if (video) {
+                peerConnections[userId] = null;
+                video.remove();
+            }
+        },
+        handleConnectionstatechange() {
+            console.log(
+                '00000000000handleConnectionstatechange000000000',
+                this.pc.connectionState
+            );
+            switch (this.pc.connectionState) {
+                case 'connected':
+                    console.log('11111111111111connected');
+                    // The connection has become fully connected
+                    break;
+                case 'disconnected':
+                    console.log('22222222222222disconnected');
+                    // removeVideo(this.remoteUserId);
+                    break;
+                case 'failed':
+                    console.log('3333333333333333333333failed');
+                    // One or more transports has terminated unexpectedly or in an error
+                    // removeVideo(this.remoteUserId);
+                    break;
+                case 'closed':
+                    console.log('4444444444444444444444closed');
+                    // The connection has been closed
+                    // removeVideo(this.remoteUserId);
+                    break;
+            }
+            console.log('onconnectionstatechange.', this.pc.connectionState);
+        },
+        handleRemoteStreamAdded() {
+            let flag = false;
             this.pc.ontrack = (e) => {
+                if (flag) {
+                    return;
+                }
                 // debugger;
                 console.log(e, '*********onaddstream');
                 let remoteVidoe = document.createElement('video');
                 remoteVidoe.autoplay = 'autoplay';
+                remoteVidoe.width = '640';
+                remoteVidoe.height = '350';
                 remoteVidoe.srcObject = e.streams[0];
                 document
                     .getElementsByClassName('videos')[0]
                     .appendChild(remoteVidoe);
+                flag = true;
             };
+        },
+        handleIceCandidate(event) {
+            if (event.candidate) {
+                var message = {
+                    id: event.candidate.sdpMid,
+                    label: event.candidate.sdpMLineIndex,
+                    candidate: event.candidate.candidate,
+                };
+                publish(
+                    'client-candidate',
+                    message,
+                    this.localUserId,
+                    this.remoteUserId
+                );
+                console.log('Broadcast Candidate:', message);
+            } else {
+                console.log('peerConnections', this.pc);
+                console.log('End of candidates.');
+            }
         },
         //发送websocket消息
         publish(event, data) {
-            // debugger;
-            // data.userId = localUserId;
-            // data.targetUserId = targetUserId;
             let jsonstr = JSON.stringify({
                 cmd: 'publish',
                 subject: this.subject,
@@ -269,19 +364,20 @@ export default {
                     video: {
                         width: 640,
                         height: 350,
-                        frameRate: { ideal: 60, max: 60 },
+                        frameRate: { ideal: 30, max: 60 },
                     },
                 })
                 .then((stream) => {
-                    console.log(stream, 'stream========');
                     let localVideo = document.getElementById('localVideo');
                     localVideo.srcObject = stream;
                     this.localStream = stream;
                     localVideo.addEventListener('loadedmetadata', () => {
-                        console.log('视频加载完毕', this.localStream);
+                        // console.log('视频加载完毕', this.localStream);
                         console.log('localUserId', this.localUserId);
-                        let msg = {};
-                        this.publish('client-call', msg, this.localUserId);
+                        // let msg = {};
+                        this.publish('client-call', {
+                            userId: this.localUserId,
+                        });
                     });
                     // this.openLocalStream(stream);
                 })
