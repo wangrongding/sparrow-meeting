@@ -4,7 +4,7 @@
             class="joinBox"
             v-if="JoinShow"
         >
-            <div class="login_center">
+            <div class="join_center">
                 <h3>多人协同房间</h3>
                 <el-form
                     @submit.native.prevent
@@ -35,16 +35,36 @@
                     </el-form-item>
                 </el-form>
             </div>
-            <!-- <button id="startBtn">视频连接</button> -->
         </div>
         <div class="videos">
-            <video
-                id="localVideo"
-                width="640"
-                height="350"
-                autoplay
-                muted="true"
-            ></video>
+            <div>
+                <video
+                    id="localVideo"
+                    autoplay
+                    muted="true"
+                ></video>
+                <div style="text-align:center">
+                    <button
+                        class="startBtn"
+                        @click="closePc"
+                    >挂断</button>
+                    <button
+                        class="startBtn"
+                        @click="connect"
+                    >连接</button>
+                    <button
+                        class="startBtn"
+                        @click="screenSharing"
+                    >分享屏幕</button>
+                </div>
+
+            </div>
+
+        </div>
+        <div>
+            <div>
+
+            </div>
         </div>
     </div>
 </template>
@@ -59,14 +79,15 @@ export default {
     data() {
         return {
             joinForm: {
-                roomId: '12345',
+                roomId: '123',
             },
+            subject: null,
             JoinShow: false,
             loading: false,
             localUserId: null,
+            remoteUserId: null,
             localStream: null,
             peerConnections: [],
-            subject: null,
             ws: null,
             configuration: {
                 iceServers: [
@@ -97,15 +118,20 @@ export default {
         } */
     },
     methods: {
+        closePc() {
+            console.log('close?', this.pc.connectionState);
+            this.pcChannel.send(this.remoteUserId);
+            document.getElementById(this.remoteUserId).remove();
+            this.pc.close();
+        },
         initSocket() {
             this.localUserId = Math.random().toString(36).substr(2);
             this.ws = new WebSocket('wss://webrtc.ncyymt.com:8877');
             // 基于订阅，把房间id作为主题
             this.subject = 'private-video-room-' + this.joinForm.roomId;
             this.ws.onopen = () => {
-                this.connect();
+                // this.connect();
                 this.subscribe(this.subject); //加入房间
-                // console.log('websocket opened');
             };
             this.ws.onmessage = (e) => {
                 let { userId, targetUserId, label, sdp } = JSON.parse(
@@ -115,6 +141,9 @@ export default {
                 //不允许自己发给自己
                 if (this.localUserId == userId) {
                     return;
+                }
+                if (userId) {
+                    this.remoteUserId = userId;
                 }
                 // if message is not send to me. ignore it
                 if (targetUserId && targetUserId != this.localUserId) {
@@ -161,38 +190,26 @@ export default {
             this.pc.setRemoteDescription(sdpData);
             this.pc.createAnswer().then(
                 (desc) => {
-                    this.createAnswerAndSendMessage(desc);
+                    this.createAnswerAndSendMessage(desc, remoteUserId);
                 },
                 (e) => {
                     console.error('client-offer中捕获的错误', e);
                 }
             );
         },
-        createAnswerAndSendMessage(desc) {
+        createAnswerAndSendMessage(desc, remoteUserId) {
             // console.log('CreateAnswerSdp:', desc);
             this.pc.setLocalDescription(desc).catch((e) => {
                 console.error('createAnswerAndSendMessage中捕获的 错误', e);
             });
             var message = {
                 sdp: desc.sdp,
+                userId: this.localUserId,
+                targetUserId: remoteUserId,
             };
-            this.publish(
-                'client-answer',
-                message,
-                this.localUserId,
-                this.remoteUserId
-            );
-            // console.log('Broadcast Answer:', message);
+            this.publish('client-answer', message);
         },
         handleRemoteCandidate(label, candidate, remoteUserId) {
-            /* console.log('Remote candidate received: ', remoteUserId);
-            if (peerConnections[remoteUserId] == null) {
-                console.log(
-                    'Invlid state, can not find the offerer ',
-                    remoteUserId
-                );
-                return;
-            } */
             var candidateData = new RTCIceCandidate({
                 sdpMLineIndex: label,
                 candidate: candidate,
@@ -208,54 +225,32 @@ export default {
                 });
         },
         handleCreateOfferError(event) {
-            console.log('CreateOffer() error: ', event);
+            console.error('CreateOffer error: ', event);
         },
         createOfferAndSendMessage(sessionDescription) {
-            // console.log('CreateOfferSdp:', sessionDescription);
             this.pc.setLocalDescription(sessionDescription);
             var message = {
                 sdp: sessionDescription.sdp,
+                userId: this.localUserId,
+                targetUserId: this.remoteUserId,
             };
-            this.publish(
-                'client-offer',
-                message,
-                this.localUserId,
-                this.remoteUserId
-            );
-            // console.log('Broadcast Offer:', message);
+            this.publish('client-offer', message);
         },
 
         createPc(localStream) {
             this.pc = new RTCPeerConnection(this.configuration);
-            this.pc.onaddstream = this.handleRemoteStreamAdded();
-            // this.pc.onicecandidate = this.handleIceCandidate(event);
-            this.pc.onicecandidate = (event) => {
-                if (event.candidate) {
-                    var message = {
-                        id: event.candidate.sdpMid,
-                        label: event.candidate.sdpMLineIndex,
-                        candidate: event.candidate.candidate,
-                    };
-                    this.publish(
-                        'client-candidate',
-                        message,
-                        this.localUserId,
-                        this.remoteUserId
-                    );
-                } else {
-                    console.log('peerConnections', this.pc);
-                    console.log('End of candidates.');
-                }
-            };
+            this.pcChannel = this.pc.createDataChannel('pcChannel');
+            this.pc.ontrack = this.handleRemoteStreamAdded;
             this.pc.onremovestream = this.handleRemoteStreamRemoved();
-            this.pc.onconnectionstatechange = this.handleConnectionstatechange();
+            this.pc.onicecandidate = this.handleIceCandidate;
+            this.pc.onconnectionstatechange = this.handleConnectionstatechange;
             const tracks = localStream.getTracks();
             for (let i = 0; i < tracks.length; i++) {
                 this.pc.addTrack(tracks[i], localStream);
             }
         },
         handleRemoteStreamRemoved() {
-            console.log('Handle remote stream removed.');
+            // console.log('‘‘‘‘‘‘‘‘‘‘‘‘‘‘‘‘くぇくぇくぇ‘‘‘‘‘‘‘‘‘‘‘‘‘');
         },
         removeVideo(userId) {
             var video = document.getElementById(userId);
@@ -264,51 +259,48 @@ export default {
                 video.remove();
             }
         },
-        handleConnectionstatechange() {
-            console.log(
-                '00000000000handleConnectionstatechange000000000',
-                this.pc.connectionState
-            );
+        handleConnectionstatechange(e) {
             switch (this.pc.connectionState) {
                 case 'connected':
-                    console.log('11111111111111connected');
                     // The connection has become fully connected
                     break;
                 case 'disconnected':
-                    console.log('22222222222222disconnected');
+                    document.getElementById(this.remoteUserId).remove();
                     // removeVideo(this.remoteUserId);
                     break;
                 case 'failed':
-                    console.log('3333333333333333333333failed');
+                    document.getElementById(this.remoteUserId).remove();
                     // One or more transports has terminated unexpectedly or in an error
                     // removeVideo(this.remoteUserId);
                     break;
                 case 'closed':
-                    console.log('4444444444444444444444closed');
                     // The connection has been closed
                     // removeVideo(this.remoteUserId);
                     break;
             }
-            console.log('onconnectionstatechange.', this.pc.connectionState);
+            console.log(
+                'Connectionstatechange000000000',
+                this.pc.connectionState
+            );
         },
-        handleRemoteStreamAdded() {
-            let flag = false;
-            this.pc.ontrack = (e) => {
-                if (flag) {
-                    return;
-                }
-                // debugger;
-                console.log(e, '*********onaddstream');
-                let remoteVidoe = document.createElement('video');
-                remoteVidoe.autoplay = 'autoplay';
-                remoteVidoe.width = '640';
-                remoteVidoe.height = '350';
-                remoteVidoe.srcObject = e.streams[0];
-                document
-                    .getElementsByClassName('videos')[0]
-                    .appendChild(remoteVidoe);
-                flag = true;
-            };
+        handleRemoteStreamAdded(e) {
+            if (document.getElementById(this.remoteUserId)) {
+                return;
+            }
+            /*  if (flag) {
+                return;
+            } */
+            // debugger;
+            console.log('*********onaddstream', e, this.localStream);
+            let remoteVidoe = document.createElement('video');
+            remoteVidoe.autoplay = 'autoplay';
+            remoteVidoe.id = this.remoteUserId;
+            remoteVidoe.width = '640';
+            remoteVidoe.height = '350';
+            remoteVidoe.srcObject = e.streams[0];
+            document
+                .getElementsByClassName('videos')[0]
+                .appendChild(remoteVidoe);
         },
         handleIceCandidate(event) {
             if (event.candidate) {
@@ -316,14 +308,10 @@ export default {
                     id: event.candidate.sdpMid,
                     label: event.candidate.sdpMLineIndex,
                     candidate: event.candidate.candidate,
+                    userId: this.localUserId,
+                    targetUserId: this.remoteUserId,
                 };
-                publish(
-                    'client-candidate',
-                    message,
-                    this.localUserId,
-                    this.remoteUserId
-                );
-                console.log('Broadcast Candidate:', message);
+                this.publish('client-candidate', message);
             } else {
                 console.log('peerConnections', this.pc);
                 console.log('End of candidates.');
@@ -352,6 +340,19 @@ export default {
             this.JoinShow = false;
             this.initSocket();
         },
+        openLocalStream(stream) {
+            let localVideo = document.getElementById('localVideo');
+            localVideo.srcObject = stream;
+            this.localStream = stream;
+            localVideo.addEventListener('loadedmetadata', () => {
+                // console.log('视频加载完毕', this.localStream);
+                console.log('localUserId', this.localUserId);
+                // let msg = {};
+                this.publish('client-call', {
+                    userId: this.localUserId,
+                });
+            });
+        },
         //连接视频语音
         connect() {
             navigator.mediaDevices
@@ -367,23 +368,25 @@ export default {
                         frameRate: { ideal: 30, max: 60 },
                     },
                 })
-                .then((stream) => {
-                    let localVideo = document.getElementById('localVideo');
-                    localVideo.srcObject = stream;
-                    this.localStream = stream;
-                    localVideo.addEventListener('loadedmetadata', () => {
-                        // console.log('视频加载完毕', this.localStream);
-                        console.log('localUserId', this.localUserId);
-                        // let msg = {};
-                        this.publish('client-call', {
-                            userId: this.localUserId,
-                        });
-                    });
-                    // this.openLocalStream(stream);
-                })
-                .catch((e) => {
+                .then(
+                    (stream) => {
+                        this.openLocalStream(stream);
+                    },
+                    (e) => {
+                        alert(e + '============getUserMedia');
+                    }
+                );
+        },
+        //分享屏幕
+        screenSharing() {
+            navigator.mediaDevices.getDisplayMedia().then(
+                (stream) => {
+                    this.openLocalStream(stream);
+                },
+                (e) => {
                     alert(e + '============getUserMedia');
-                });
+                }
+            );
         },
     },
 };
@@ -395,11 +398,6 @@ export default {
     height: 100vh;
     width: 100vw;
     background: rgb(252, 244, 208);
-    #startBtn {
-        width: 300px;
-        height: 100px;
-        margin: 0 auto;
-    }
     .hidden {
         display: none;
     }
@@ -411,7 +409,7 @@ export default {
         background: url('../assets/bg.jpg');
         width: 100vw;
         height: 100vh;
-        .login_center {
+        .join_center {
             text-align: center;
             width: 300px;
             background: rgba(255, 255, 255, 0.842);
@@ -420,10 +418,6 @@ export default {
             float: right;
             margin-top: 300px;
             margin-right: 200px;
-            // position: unset;
-            // right: 100px;
-            // top: 300px;
-
             img {
                 width: 50px;
             }
@@ -434,21 +428,12 @@ export default {
                 margin-bottom: 10px;
                 border-radius: 0;
             }
-            .login_entering {
-                float: right;
-                margin-top: 5px;
-            }
-            .login_btn {
-                width: 100%;
-                background: #3171ff;
-                color: #fff;
-                text-align: center;
-                padding: 10px 0;
-                border-radius: 3px;
-                float: left;
-                margin-top: 30px;
-            }
         }
+    }
+    .videos {
+        display: flex;
+        flex-direction: row;
+        justify-content: space-between;
     }
 }
 </style>
