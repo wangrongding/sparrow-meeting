@@ -8,6 +8,7 @@ module.exports = {
     productionSourceMap: false,
     devServer: {
         host: "0.0.0.0",
+        https:true,
         port: 9530,
         disableHostCheck: true,
         proxy: {
