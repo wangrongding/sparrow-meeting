@@ -1,4 +1,5 @@
 const path = require("path");
+const fs = require("fs");
 const CompressionPlugin = require("compression-webpack-plugin");
 const resolve = (dir) => path.join(__dirname, dir);
 
@@ -8,8 +9,12 @@ module.exports = {
     productionSourceMap: false,
     devServer: {
         host: "0.0.0.0",
-        https:true,
         port: 9530,
+        https: true,
+        /* https: {
+            keys: fs.readFileSync("./127.0.0.1-key.pem"),
+            cert: fs.readFileSync("./127.0.0.1.pem"),
+        }, */
         disableHostCheck: true,
         proxy: {
             "/api": {
@@ -23,10 +28,10 @@ module.exports = {
         },
     },
     pluginOptions: {
-        "less-loader":{
-            preProcessor:'less',
+        "less-loader": {
+            preProcessor: "less",
             // patterns:[path.resolve()]
-        }
+        },
     },
     // 开启gzip压缩
     configureWebpack: () => {
