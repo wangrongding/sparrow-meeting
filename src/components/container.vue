@@ -213,16 +213,18 @@ export default {
         connect() {
             navigator.mediaDevices
                 .getUserMedia({
-                    audio: {
+                    /*  audio: {
                         echoCancellation: true, //使用回声消除来尝试去除通过麦克风回传到扬声器的音频
                         noiseSuppression: true, //去除音频信号中的背景噪声
                         channelCount: 2, //立体音
-                    },
-                    video: {
+                    }, */
+                    /*  video: {
                         // width: 640,
                         // height: 400,
                         frameRate: { ideal: 30, max: 60 },
-                    },
+                    }, */
+                    audio: true,
+                    video: false,
                 })
                 .then(
                     (stream) => {
@@ -280,11 +282,10 @@ export default {
         },
         initSocket() {
             this.localUserId = Math.random().toString(36).substr(2);
-            this.ws = new WebSocket('wss://webrtc.ncyymt.com:8877');
             // 基于订阅，把房间id作为主题
             this.subject = 'private-video-room-' + this.joinForm.roomId;
+            this.ws = new WebSocket('wss://webrtc.ncyymt.com:8877');
             this.ws.onopen = () => {
-                // this.connect();
                 this.subscribe(this.subject); //加入房间
             };
             this.ws.onmessage = (e) => {
@@ -306,7 +307,11 @@ export default {
                 switch (JSON.parse(e.data).event) {
                     case 'client-call':
                         console.log('userId', userId);
-                        this.createOffer();
+                        this.createOffer(userId);
+                        break;
+                    case 'client-offer':
+                        console.log('userId', userId);
+                        this.handleRemoteOffer(sdp, userId);
                         break;
                     case 'client-answer':
                         if (this.pc[this.remoteUserId] == null) {
@@ -319,10 +324,6 @@ export default {
                             })
                         );
                         // debugger;
-                        break;
-                    case 'client-offer':
-                        console.log('userId', userId);
-                        this.handleRemoteOffer(sdp, userId);
                         break;
                     case 'client-candidate':
                         this.handleRemoteCandidate(
@@ -343,19 +344,19 @@ export default {
                 type: 'offer',
                 sdp: sdp,
             });
-            if (this.pc[this.remoteUserId] == null) {
-                this.createPc(this.localStream);
-                // this.pc[this.remoteUserId].setRemoteDescription(sdpData);
+            if (this.pc[remoteUserId] == null) {
+                this.createPc(this.localStream, remoteUserId);
+                // this.pc[remoteUserId].setRemoteDescription(sdpData);
             }
-            console.warn(
-                'this.pc[this.remoteUserId]',
-                this.pc[this.remoteUserId]
+            console.log(
+                '%cthis.pc[remoteUserId]',
+                "color: '#0a0',font-size:1em",
+                this.pc[remoteUserId]
             );
-            //----
-            this.remoteSdp[this.remoteUserId] = sdpData;
-            //-->
-            // this.pc[this.remoteUserId].setRemoteDescription(sdpData);
-            this.pc[this.remoteUserId].createAnswer().then(
+            this.remoteSdp[remoteUserId] = sdpData;
+            this.setRemoteDescription(sdpData, remoteUserId);
+            debugger;
+            this.pc[remoteUserId].createAnswer().then(
                 (desc) => {
                     this.createAnswerAndSendMessage(desc, remoteUserId);
                 },
@@ -363,13 +364,16 @@ export default {
                     console.error('client-offer中捕获的错误', e);
                 }
             );
-            this.setRemoteDescription(sdpData);
         },
-        setRemoteDescription(sdpData) {
-            if (this.remoteSdp[this.remoteUserId] != null) {
+        setRemoteDescription(sdpData, remoteUserId) {
+            console.log(
+                this.pc[remoteUserId],
+                '===========setRemoteDescription=========='
+            );
+            if (this.remoteSdp[remoteUserId] != null) {
                 return;
             }
-            this.pc[this.remoteUserId].setRemoteDescription(sdpData);
+            this.pc[remoteUserId].setRemoteDescription(sdpData);
         },
         createAnswerAndSendMessage(desc, remoteUserId) {
             this.pc[this.remoteUserId].setLocalDescription(desc).catch((e) => {
@@ -383,65 +387,76 @@ export default {
             this.publish('client-answer', message);
         },
         handleRemoteCandidate(label, candidate, remoteUserId) {
-            if (this.pc[this.remoteUserId] == null) {
+            if (this.pc[remoteUserId] == null) {
                 return;
             }
             var candidateData = new RTCIceCandidate({
                 sdpMLineIndex: label,
                 candidate: candidate,
             });
-            this.pc[this.remoteUserId].addIceCandidate(candidateData);
+            this.pc[remoteUserId].addIceCandidate(candidateData);
         },
-        createOffer() {
-            if (this.pc[this.remoteUserId] == null) {
-                this.createPc(this.localStream);
+        createOffer(remoteUserId) {
+            if (this.pc[remoteUserId] == null) {
+                this.createPc(this.localStream, remoteUserId);
+                // return;
             }
-            this.pc[this.remoteUserId].createOffer().then(
+            console.group(this.pc[remoteUserId], remoteUserId);
+            this.pc[remoteUserId].createOffer().then(
                 (desc) => {
-                    this.createOfferAndSendMessage(desc);
+                    this.createOfferAndSendMessage(desc, remoteUserId);
                 },
                 (err) => {
                     console.error('CreateOffer error: ', err);
                 }
             );
         },
-        createOfferAndSendMessage(sessionDescription) {
-            this.pc[this.remoteUserId].setLocalDescription(sessionDescription);
+        createOfferAndSendMessage(sessionDescription, remoteUserId) {
+            this.pc[remoteUserId].setLocalDescription(sessionDescription);
             var message = {
                 sdp: sessionDescription.sdp,
                 userId: this.localUserId,
-                targetUserId: this.remoteUserId,
+                targetUserId: remoteUserId,
             };
             this.publish('client-offer', message);
         },
-        initDataChannel() {
-            this.pcChannel = this.pc[this.remoteUserId].createDataChannel(
-                'myChat',
-                {
-                    negotiated: true,
-                    id: 0,
-                }
-            );
+        initDataChannel(remoteUserId) {
+            this.pcChannel = this.pc[remoteUserId].createDataChannel('myChat', {
+                negotiated: true,
+                id: 0,
+            });
             this.pcChannel.onmessage = function (event) {
                 console.log('收到的数据', event);
             };
         },
-        createPc(localStream) {
-            this.pc[this.remoteUserId] = new RTCPeerConnection(
-                this.configuration
+        createPc(localStream, remoteUserId) {
+            this.pc[remoteUserId] = new RTCPeerConnection(this.configuration);
+            this.initDataChannel(remoteUserId);
+
+            this.pc[remoteUserId].ontrack = this.handleRemoteStreamAdded.bind(
+                this,
+                remoteUserId
             );
-            this.initDataChannel();
-            this.pc[this.remoteUserId].ontrack = this.handleRemoteStreamAdded;
-            this.pc[
-                this.remoteUserId
-            ].onremovestream = this.handleRemoteStreamRemoved;
-            this.pc[this.remoteUserId].onicecandidate = this.handleIceCandidate;
-            this.pc[
-                this.remoteUserId
-            ].onconnectionstatechange = this.handleConnectionstatechange;
+
+            this.pc[remoteUserId].onnegotiationneeded = (e) => {
+                console.log(e, '*********onnegotiationneeded*******');
+                console.log(
+                    '*******signalingState***',
+                    this.pc[remoteUserId].signalingState
+                );
+            };
+            this.pc[remoteUserId].onremovestream = (e) => {
+                this.handleRemoteStreamRemoved;
+            };
+            this.pc[remoteUserId].onicecandidate = (e) => {
+                this.handleIceCandidate;
+            };
+            this.pc[remoteUserId].onconnectionstatechange = (e) => {
+                this.handleConnectionstatechange;
+            };
             const tracks = localStream.getTracks();
             for (let i = 0; i < tracks.length; i++) {
-                this.pc[this.remoteUserId].addTrack(tracks[i], localStream);
+                this.pc[remoteUserId].addTrack(tracks[i], localStream);
             }
         },
         handleRemoteStreamRemoved(e) {
@@ -469,7 +484,6 @@ export default {
                         .srcObject.getVideoTracks()[0].enabled = false;
                     break;
                 case 'failed':
-                    // document.getElementById(this.remoteUserId).remove();
                     break;
                 case 'closed':
                     break;
@@ -479,7 +493,7 @@ export default {
                 this.pc[this.remoteUserId].connectionState
             );
         },
-        handleRemoteStreamAdded(e) {
+        handleRemoteStreamAdded(remoteUserId, e) {
             console.log('*********onaddstream', e, this.localStream);
             if (document.getElementById(this.remoteUserId)) {
                 return;

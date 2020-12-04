@@ -274,7 +274,7 @@ export default {
         },
         initSocket() {
             this.localUserId = Math.random().toString(36).substr(2);
-            this.ws = new WebSocket('wss://webrtc.ncyymt.com:8877');
+            this.ws = new WebSocket('wss://chat.ncyymt.com/wss');
             // 基于订阅，把房间id作为主题
             this.subject = 'private-video-room-' + this.joinForm.roomId;
             this.ws.onopen = () => {
