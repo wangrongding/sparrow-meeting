@@ -521,7 +521,7 @@ export default {
         position: absolute;
         left: 0;
         top: 0;
-        background: url('../assets/bg.jpg');
+        background: url('../assets/bg.png');
         width: 100vw;
         height: 100vh;
         .join_center {

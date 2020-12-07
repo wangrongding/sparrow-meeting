@@ -8,8 +8,6 @@
                 <h3>多人协同房间</h3>
                 <el-form
                     @submit.native.prevent
-                    ref="joinForm"
-                    :model="joinForm"
                     class="login-form"
                     autocomplete="on"
                     label-position="left"
@@ -17,7 +15,18 @@
                     <el-form-item prop="roomId">
                         <el-input
                             ref="roomId"
-                            v-model="joinForm.roomId"
+                            v-model="localUserId"
+                            placeholder="请输入姓名/或用户名"
+                            name="roomId"
+                            type="text"
+                            autocomplete="on"
+                            @keyup.enter="join"
+                        />
+                    </el-form-item>
+                    <el-form-item prop="roomId">
+                        <el-input
+                            ref="roomId"
+                            v-model="roomId"
                             placeholder="请输入房间号"
                             name="roomId"
                             type="text"
@@ -129,12 +138,10 @@ export default {
     },
     data() {
         return {
-            joinForm: {
-                roomId: '123',
-            },
-            subject: null,
-            JoinShow: false,
             loading: false,
+            roomId: '',
+            subject: null,
+            JoinShow: true,
             localUserId: null,
             remoteUserId: null,
             localStream: null,
@@ -149,7 +156,6 @@ export default {
                 ],
             },
 
-            pc: {},
             remoteSdp: {},
             answer: 0,
             tempSignVideo: true,
@@ -169,17 +175,17 @@ export default {
 
         window.onunloadcancel = function () {
             console.log('close');
-            this.pc.close();
+            this.peerList.close();
         }; */
     },
     destroyed() {
-        /*  if (this.pc) {
-            this.pc.close();
+        /*  if (this.peerList) {
+            this.peerList.close();
         } */
     },
     methods: {
         consolePcInfo() {
-            console.log(this.pc, 'this.pc');
+            console.log(this.peerList, 'this.peerList');
         },
         //控制底部操作栏图标颜色
         handleIconType() {
@@ -249,7 +255,7 @@ export default {
                     video: {
                         width: 640,
                         height: 350,
-                        frameRate: { ideal: 30, max: 60 },
+                        frameRate: { ideal: 60, max: 60 },
                     },
                 })
                 .then(
@@ -278,24 +284,24 @@ export default {
         },
         closePc() {
             this.pcChannel.send(this.remoteUserId);
-            for (let key in this.pc) {
-                this.pc[key].close();
+            for (let key in this.peerList) {
+                this.peerList[key].close();
             }
-            this.pc = null;
+            this.peerList = null;
             // window.location.reload();
-            /*  console.log('close?', this.pc.connectionState);
+            /*  console.log('close?', this.peerList.connectionState);
             this.pcChannel.send(this.remoteUserId);
             document.getElementById(this.remoteUserId).remove();
-            this.pc.close();
+            this.peerList.close();
             window.location.reload(); */
         },
         initSocket() {
-            this.localUserId = Math.random().toString(36).substr(2);
+            // this.localUserId = Math.random().toString(36).substr(2);
             // 基于订阅，把房间id作为主题
-            this.subject = 'private-video-room-' + this.joinForm.roomId;
+            this.subject = 'private-video-room-' + this.roomId;
             this.ws = new WebSocket('wss://webrtc.ncyymt.com:8877');
             this.ws.onopen = () => {
-                this.subscribe(this.subject); //加入房间
+                // this.subscribe(this.subject); //加入房间
             };
             this.ws.onmessage = (e) => {
                 let { userId, targetUserId, label, sdp } = JSON.parse(
@@ -316,16 +322,19 @@ export default {
                 switch (JSON.parse(e.data).event) {
                     case 'client-call':
                         console.log('client-call==>', userId);
-                        !this.pc[this.remoteUserId] && this.createOffer(userId);
+                        !this.peerList[this.remoteUserId] &&
+                            this.createOffer(userId);
                         break;
                     case 'client-offer':
                         console.log('client-offer==>', userId);
-                        !this.pc[this.remoteUserId] &&
+                        !this.peerList[this.remoteUserId] &&
                             this.handleRemoteOffer(sdp, userId);
                         break;
                     case 'client-answer':
-                        this.pc[this.remoteUserId] &&
-                            this.pc[this.remoteUserId].setRemoteDescription(
+                        this.peerList[this.remoteUserId] &&
+                            this.peerList[
+                                this.remoteUserId
+                            ].setRemoteDescription(
                                 new RTCSessionDescription({
                                     type: 'answer',
                                     sdp: sdp,
@@ -355,14 +364,14 @@ export default {
             });
             await this.createPc(this.localStream, remoteUserId);
             // console.log(
-            //     'handleRemoteOffer===>this.pc[remoteUserId]',
-            //     this.pc[remoteUserId]
+            //     'handleRemoteOffer===>this.peerList[remoteUserId]',
+            //     this.peerList[remoteUserId]
             // );
             this.remoteSdp[remoteUserId] = sdpData;
             // this.setRemoteDescription(sdpData, remoteUserId);
 
-            this.pc[remoteUserId].setRemoteDescription(sdpData, () => {
-                this.pc[remoteUserId].createAnswer().then(
+            this.peerList[remoteUserId].setRemoteDescription(sdpData, () => {
+                this.peerList[remoteUserId].createAnswer().then(
                     (desc) => {
                         this.createAnswerAndSendMessage(desc, remoteUserId);
                     },
@@ -373,23 +382,8 @@ export default {
             });
             // debugger;
         },
-        /* createAnswerAndSendMessage(desc, remoteUserId) {
-            this.pc[remoteUserId]
-                .setLocalDescription(desc)
-                .then(() => {
-                    var message = {
-                        sdp: desc.sdp,
-                        userId: this.localUserId,
-                        targetUserId: remoteUserId,
-                    };
-                    this.publish('client-answer', message);
-                })
-                .catch((e) => {
-                    console.error('createAnswerAndSendMessage中捕获的 错误', e);
-                });
-        }, */
         createAnswerAndSendMessage(desc, remoteUserId) {
-            this.pc[remoteUserId]
+            this.peerList[remoteUserId]
                 .setLocalDescription(desc)
                 .then(() => {
                     var message = {
@@ -405,17 +399,17 @@ export default {
         },
         setRemoteDescription(sdpData, remoteUserId) {
             // console.log(
-            //     this.pc[remoteUserId],
+            //     this.peerList[remoteUserId],
             //     '===========setRemoteDescription=========='
             // );
             if (this.remoteSdp[remoteUserId] != null) {
                 return;
             }
-            this.pc[remoteUserId].setRemoteDescription(sdpData);
+            this.peerList[remoteUserId].setRemoteDescription(sdpData);
         },
 
         handleRemoteCandidate(label, candidate, remoteUserId) {
-            /* if (this.pc[remoteUserId] == null) {
+            /* if (this.peerList[remoteUserId] == null) {
                 return;
             } */
             var candidateData = new RTCIceCandidate({
@@ -423,20 +417,20 @@ export default {
                 candidate: candidate,
             });
             // console.log('handleRemoteCandidate==>', candidateData);
-            this.pc[remoteUserId].addIceCandidate(candidateData);
+            this.peerList[remoteUserId].addIceCandidate(candidateData);
         },
         createOffer(remoteUserId) {
-            if (this.pc[remoteUserId] == null) {
+            if (this.peerList[remoteUserId] == null) {
                 this.createPc(this.localStream, remoteUserId);
             }
             // debugger;
-            // console.group(this.pc[remoteUserId], remoteUserId);
+            // console.group(this.peerList[remoteUserId], remoteUserId);
             this.createOfferAndSendMessage(remoteUserId);
         },
         createOfferAndSendMessage(remoteUserId) {
-            this.pc[remoteUserId].createOffer().then(
+            this.peerList[remoteUserId].createOffer().then(
                 (desc) => {
-                    this.pc[remoteUserId]
+                    this.peerList[remoteUserId]
                         .setLocalDescription(desc)
                         .then(() => {
                             var message = {
@@ -488,7 +482,7 @@ export default {
             };
             //监听连接状体
             peer.onicecandidate = (e) => {
-                console.log('handleIceCandidate==>', this.pc);
+                console.log('handleIceCandidate==>', this.peerList);
                 this.handleIceCandidate(e);
             };
             //监听连接状体
@@ -499,7 +493,7 @@ export default {
             for (let i = 0; i < tracks.length; i++) {
                 peer.addTrack(tracks[i], localStream);
             }
-            this.pc[remoteUserId] = peer;
+            this.peerList[remoteUserId] = peer;
         },
 
         removeVideo(userId) {
@@ -513,7 +507,7 @@ export default {
             // console.log('onremovestream***', e);
         },
         handleConnectionstatechange(e) {
-            switch (this.pc[this.remoteUserId].connectionState) {
+            switch (this.peerList[this.remoteUserId].connectionState) {
                 case 'connected':
                     break;
                 case 'disconnected':
@@ -533,7 +527,7 @@ export default {
             }
             // console.log(
             //     'handleConnectionstatechange',
-            //     this.pc[this.remoteUserId].connectionState
+            //     this.peerList[this.remoteUserId].connectionState
             // );
         },
         handleRemoteStreamAdded(remoteUserId, e) {
@@ -567,7 +561,7 @@ export default {
             } else {
                 // console.log(
                 //     'handleIceCandidate=>No',
-                //     this.pc[this.remoteUserId],
+                //     this.peerList[this.remoteUserId],
                 //     event
                 // );
             }
@@ -593,7 +587,8 @@ export default {
         },
         join() {
             this.JoinShow = false;
-            this.initSocket();
+            // this.initSocket();
+            this.subscribe(this.subject);
         },
     },
 };
@@ -613,7 +608,7 @@ export default {
         position: absolute;
         left: 0;
         top: 0;
-        background: url('../assets/bg.jpg');
+        background: url('../assets/bg.png');
         width: 100vw;
         height: 100vh;
         .join_center {
