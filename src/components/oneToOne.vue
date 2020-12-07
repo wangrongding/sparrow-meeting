@@ -395,7 +395,12 @@ export default {
             };
         },
         createPc(localStream) {
-            this.pc = new RTCPeerConnection(this.configuration);
+            //兼容浏览器的PeerConnection写法
+            const  PeerConnection =
+                window.RTCPeerConnection ||
+                window.webkitRTCPeerConnection ||
+                window.mozRTCPeerConnection;
+            this.pc = new PeerConnection(this.configuration);
             this.initDataChannel();
             this.pc.ontrack = this.handleRemoteStreamAdded;
             this.pc.onremovestream = this.handleRemoteStreamRemoved;
