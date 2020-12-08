@@ -5,7 +5,7 @@
             v-if="JoinShow"
         >
             <div class="join_center">
-                <h3>多人协同房间</h3>
+                <h3>多学科联合会诊</h3>
                 <el-form
                     @submit.native.prevent
                     class="login-form"
@@ -613,8 +613,9 @@ export default {
         height: 100vh;
         .join_center {
             text-align: center;
+            color: #fff;
             width: 300px;
-            background: rgba(255, 255, 255, 0.842);
+            background: rgba(0, 0, 0, 0.37);
             border-radius: 30px;
             padding: 25px 40px;
             float: right;
