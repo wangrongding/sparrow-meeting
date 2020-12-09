@@ -228,6 +228,7 @@ export default {
                         channelCount: 2, //立体音
                     },
                     video: {
+                        //  contentType : "video/webm;codecs=vp8", // 有效的内容类型
                         // width: 640,
                         // height: 400,
                         frameRate: { ideal: 30, max: 60 },
@@ -253,8 +254,8 @@ export default {
                 .getDisplayMedia({
                     audio: true,
                     video: {
-                        width: 640,
-                        height: 350,
+                        // width: 640,
+                        // height: 350,
                         frameRate: { ideal: 60, max: 60 },
                     },
                 })
