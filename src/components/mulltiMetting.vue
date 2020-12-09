@@ -7,10 +7,9 @@
             <div class="join_center">
                 <h3>多学科联合会诊</h3>
                 <el-form
-                    @submit.native.prevent
                     class="login-form"
-                    autocomplete="on"
                     label-position="left"
+                    @keyup.enter.native="join"
                 >
                     <el-form-item prop="roomId">
                         <el-input
@@ -20,7 +19,6 @@
                             name="roomId"
                             type="text"
                             autocomplete="on"
-                            @keyup.enter="join"
                         />
                     </el-form-item>
                     <el-form-item prop="roomId">
@@ -31,7 +29,6 @@
                             name="roomId"
                             type="text"
                             autocomplete="on"
-                            @keyup.enter="join"
                         />
                     </el-form-item>
                     <el-form-item>
@@ -39,7 +36,7 @@
                             :loading="loading"
                             type="primary"
                             style="width:100%;height:40px;"
-                            @click.native.prevent="join"
+                            @click="join"
                         >加入房间</el-button>
                     </el-form-item>
                 </el-form>
@@ -161,8 +158,10 @@ export default {
             tempSignVideo: true,
             tempSignAudio: true,
             drawerShow: true,
+
             peer: null,
             peerList: {},
+            pcChannel: {},
         };
     },
     created() {
@@ -228,7 +227,6 @@ export default {
                         channelCount: 2, //立体音
                     },
                     video: {
-                        //  contentType : "video/webm;codecs=vp8", // 有效的内容类型
                         // width: 640,
                         // height: 400,
                         frameRate: { ideal: 30, max: 60 },
@@ -254,8 +252,6 @@ export default {
                 .getDisplayMedia({
                     audio: true,
                     video: {
-                        // width: 640,
-                        // height: 350,
                         frameRate: { ideal: 60, max: 60 },
                     },
                 })
@@ -305,26 +301,37 @@ export default {
                 // this.subscribe(this.subject); //加入房间
             };
             this.ws.onmessage = (e) => {
-                let { userId, targetUserId, label, sdp } = JSON.parse(
+                /* 本地元数据未加载成功 用来屏蔽client-call事件 */
+                if (!this.localStream) {
+                    console.log('本地元数据未加载成功');
+                    return;
+                }
+                let { userId, targetUserId, sdp, candidate } = JSON.parse(
                     e.data
                 ).data;
-                let data = JSON.parse(e.data).data;
+                let event = JSON.parse(e.data).event;
                 //不允许自己发给自己
                 if (this.localUserId == userId) {
                     return;
                 }
+                /* 屏蔽信令服务器发送过来已经有了的client-offer事件 */
+                Object.keys(this.peerList).forEach((item) => {
+                    if (item === userId) {
+                        return;
+                    }
+                });
                 // if message is not send to me. ignore it
                 if (targetUserId && targetUserId != this.localUserId) {
                     return;
                 }
-                if (userId) {
-                    this.remoteUserId = userId;
-                }
-                switch (JSON.parse(e.data).event) {
+
+                userId && (this.remoteUserId = userId);
+
+                switch (event) {
                     case 'client-call':
                         console.log('client-call==>', userId);
                         !this.peerList[this.remoteUserId] &&
-                            this.createOffer(userId);
+                            this.createOfferAndSendMessage(userId);
                         break;
                     case 'client-offer':
                         console.log('client-offer==>', userId);
@@ -345,11 +352,7 @@ export default {
                         break;
                     case 'client-candidate':
                         console.log('client-candidate===>', userId);
-                        this.handleRemoteCandidate(
-                            data.label,
-                            data.candidate,
-                            userId
-                        );
+                        this.handleRemoteCandidate(candidate, userId);
                         break;
                 }
             };
@@ -364,13 +367,7 @@ export default {
                 sdp: sdp,
             });
             await this.createPc(this.localStream, remoteUserId);
-            // console.log(
-            //     'handleRemoteOffer===>this.peerList[remoteUserId]',
-            //     this.peerList[remoteUserId]
-            // );
             this.remoteSdp[remoteUserId] = sdpData;
-            // this.setRemoteDescription(sdpData, remoteUserId);
-
             this.peerList[remoteUserId].setRemoteDescription(sdpData, () => {
                 this.peerList[remoteUserId].createAnswer().then(
                     (desc) => {
@@ -381,7 +378,6 @@ export default {
                     }
                 );
             });
-            // debugger;
         },
         createAnswerAndSendMessage(desc, remoteUserId) {
             this.peerList[remoteUserId]
@@ -399,36 +395,21 @@ export default {
                 });
         },
         setRemoteDescription(sdpData, remoteUserId) {
-            // console.log(
-            //     this.peerList[remoteUserId],
-            //     '===========setRemoteDescription=========='
-            // );
             if (this.remoteSdp[remoteUserId] != null) {
                 return;
             }
             this.peerList[remoteUserId].setRemoteDescription(sdpData);
         },
 
-        handleRemoteCandidate(label, candidate, remoteUserId) {
-            /* if (this.peerList[remoteUserId] == null) {
-                return;
-            } */
-            var candidateData = new RTCIceCandidate({
-                sdpMLineIndex: label,
-                candidate: candidate,
-            });
-            // console.log('handleRemoteCandidate==>', candidateData);
-            this.peerList[remoteUserId].addIceCandidate(candidateData);
+        handleRemoteCandidate(candidate, remoteUserId) {
+            this.peerList[remoteUserId].addIceCandidate(
+                new RTCIceCandidate(candidate)
+            );
         },
-        createOffer(remoteUserId) {
+        createOfferAndSendMessage(remoteUserId) {
             if (this.peerList[remoteUserId] == null) {
                 this.createPc(this.localStream, remoteUserId);
             }
-            // debugger;
-            // console.group(this.peerList[remoteUserId], remoteUserId);
-            this.createOfferAndSendMessage(remoteUserId);
-        },
-        createOfferAndSendMessage(remoteUserId) {
             this.peerList[remoteUserId].createOffer().then(
                 (desc) => {
                     this.peerList[remoteUserId]
@@ -451,12 +432,26 @@ export default {
             );
         },
         initDataChannel(remoteUserId, peer) {
-            this.pcChannel = peer.createDataChannel('myChat', {
-                negotiated: true,
-                id: 0,
-            });
-            this.pcChannel.onmessage = function (event) {
-                console.log('收到的数据', event);
+            this.pcChannel[remoteUserId] = peer.createDataChannel(remoteUserId);
+            peer.ondatachannel = (e) => {
+                const channel = e.channel;
+                channel.onmessage = (e) => {
+                    const data = JSON.parse(e.data);
+                    console.log(data);
+                    switch (data.message) {
+                        case 'close':
+                            document.getElementById(
+                                'mainVideo'
+                            ).srcObject = null;
+                            this.peerList[data.userId].close();
+                            this.peerList[data.userId] = null;
+                            delete this.peerList[data.userId];
+                            document.getElementById(data.userId).remove();
+                            break;
+                        default:
+                            break;
+                    }
+                };
             };
         },
         createPc(localStream, remoteUserId) {
@@ -481,12 +476,11 @@ export default {
             peer.onremovestream = (e) => {
                 this.handleRemoteStreamRemoved(e);
             };
-            //监听连接状体
+            //本地代理ICE 需要通过信令服务器传递信息给其他对等端时就会触发
             peer.onicecandidate = (e) => {
-                console.log('handleIceCandidate==>', this.peerList);
                 this.handleIceCandidate(e);
             };
-            //监听连接状体
+            //监听连接状态
             peer.onconnectionstatechange = (e) => {
                 this.handleConnectionstatechange(e);
             };
@@ -552,9 +546,7 @@ export default {
         handleIceCandidate(event) {
             if (event.candidate) {
                 var message = {
-                    id: event.candidate.sdpMid,
-                    label: event.candidate.sdpMLineIndex,
-                    candidate: event.candidate.candidate,
+                    candidate: event.candidate,
                     userId: this.localUserId,
                     targetUserId: this.remoteUserId,
                 };
@@ -587,8 +579,8 @@ export default {
             );
         },
         join() {
+            // console.log('加入房间');
             this.JoinShow = false;
-            // this.initSocket();
             this.subscribe(this.subject);
         },
     },

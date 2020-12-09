@@ -8,13 +8,11 @@
 
 <script>
 import oneToOne from './components/oneToOne.vue';
-import container from './components/container.vue';
 import mulltiMetting from './components/mulltiMetting.vue';
 
 export default {
     name: 'App',
     components: {
-        container,
         oneToOne,
         mulltiMetting,
     },
