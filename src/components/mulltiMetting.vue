@@ -394,13 +394,6 @@ export default {
                     console.error('createAnswerAndSendMessage中捕获的 错误', e);
                 });
         },
-        setRemoteDescription(sdpData, remoteUserId) {
-            if (this.remoteSdp[remoteUserId] != null) {
-                return;
-            }
-            this.peerList[remoteUserId].setRemoteDescription(sdpData);
-        },
-
         handleRemoteCandidate(candidate, remoteUserId) {
             this.peerList[remoteUserId].addIceCandidate(
                 new RTCIceCandidate(candidate)
@@ -409,27 +402,27 @@ export default {
         createOfferAndSendMessage(remoteUserId) {
             if (this.peerList[remoteUserId] == null) {
                 this.createPc(this.localStream, remoteUserId);
+                this.peerList[remoteUserId].createOffer().then(
+                    (desc) => {
+                        this.peerList[remoteUserId]
+                            .setLocalDescription(desc)
+                            .then(() => {
+                                var message = {
+                                    sdp: desc.sdp,
+                                    userId: this.localUserId,
+                                    targetUserId: remoteUserId,
+                                };
+                                this.publish('client-offer', message);
+                            })
+                            .catch((e) => {
+                                console.error('createOfferAndSendMessage', e);
+                            });
+                    },
+                    (err) => {
+                        console.error('CreateOffer error: ', err);
+                    }
+                );
             }
-            this.peerList[remoteUserId].createOffer().then(
-                (desc) => {
-                    this.peerList[remoteUserId]
-                        .setLocalDescription(desc)
-                        .then(() => {
-                            var message = {
-                                sdp: desc.sdp,
-                                userId: this.localUserId,
-                                targetUserId: remoteUserId,
-                            };
-                            this.publish('client-offer', message);
-                        })
-                        .catch((e) => {
-                            console.error('createOfferAndSendMessage', e);
-                        });
-                },
-                (err) => {
-                    console.error('CreateOffer error: ', err);
-                }
-            );
         },
         initDataChannel(remoteUserId, peer) {
             this.pcChannel[remoteUserId] = peer.createDataChannel(remoteUserId);
@@ -463,15 +456,16 @@ export default {
 
             let peer = new PeerConnection(this.configuration);
             this.initDataChannel(remoteUserId, peer);
-            peer.ontrack = this.handleRemoteStreamAdded.bind(
+
+            /* peer.ontrack = this.handleRemoteStreamAdded.bind(
                 this,
                 remoteUserId
-            );
-
-            peer.onnegotiationneeded = (e) => {
-                // console.log(e, '*********onnegotiationneeded*******');
-                // console.log('*******signalingState***', peer.signalingState);
+            ); */
+            peer.ontrack = (e) => {
+                this.handleRemoteStreamAdded(remoteUserId, e);
             };
+
+            peer.onnegotiationneeded = (e) => {};
             //监听远程视频等流的加入
             peer.onremovestream = (e) => {
                 this.handleRemoteStreamRemoved(e);
