@@ -12,13 +12,14 @@
                 <h3 style="color: #fff">当前房间用户列表</h3>
             </template>
             <div class="sidebar">
-                <video
+                <audio
                     class="sideUser"
                     id="localVideo"
+                    controls
                     muted="true"
                     autoplay
                     v-show="localStream"
-                ></video>
+                ></audio>
             </div>
         </el-drawer>
 
@@ -217,7 +218,7 @@ export default {
             if (!this.localStream) {
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: true,
-                    video: true,
+                    video: false,
                 });
                 this.openLocalStream(stream);
             }
@@ -260,17 +261,16 @@ export default {
                 }
             };
             peer.ontrack = (e) => {
-                console.log('远程流加入到本地页面：', e);
+                console.log('远程流加入到本地页面-->：', e);
                 if (document.getElementById(remoteUserId)) {
                     return;
                 }
-                // const mainVideo = document.getElementById("mainVideo");
-                const remoteVidoe = document.createElement('video');
-                // mainVideo.srcObject = e.streams[0];
+                const remoteVidoe = document.createElement('audio');
                 remoteVidoe.srcObject = e.streams[0];
                 remoteVidoe.id = remoteUserId;
                 remoteVidoe.className = 'sideUser';
                 remoteVidoe.autoplay = 'autoplay';
+                remoteVidoe.controls = 'controls';
                 remoteVidoe.width = '375';
                 remoteVidoe.height = '250';
                 document
@@ -284,7 +284,6 @@ export default {
                     console.log(data);
                     switch (data.message) {
                         case 'close':
-                            // document.getElementById("mainVideo").srcObject = null;
                             this.pc[data.data].close();
                             this.pc[data.data] = null;
                             delete this.pc[data.data];
@@ -332,19 +331,15 @@ export default {
             );
         },
         closePc() {
-            // document.getElementById("mainVideo").srcObject = null;
-            // document.getElementById("localVideo").srcObject = null;
-            // this.localStream = null;
-            // Object.keys(this.pc).forEach((key) => {
-            //   this.dc[key].send(
-            //     JSON.stringify({ message: "close", data: this.localUserId })
-            //   );
-            //   this.pc[key].close();
-            //   this.pc[key] = null;
-            //   document.getElementById(key).remove();
-            // });
-            // this.pc = {};
-            // this.dc = {};
+            Object.keys(this.pc).forEach(async (key) => {
+                await this.dc[key].send(
+                    JSON.stringify({ message: 'close', data: this.localUserId })
+                );
+                this.pc[key].close();
+                this.pc[key] = null;
+                delete this.pc[key];
+                document.getElementById(key).remove();
+            });
         },
 
         consolePcInfo() {

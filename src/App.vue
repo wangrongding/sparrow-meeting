@@ -1,12 +1,14 @@
 <template>
     <div id="app">
-        <container />
+        <audioMeeting />
+        <!-- <container /> -->
         <!-- <mulltiMetting /> -->
         <!-- <oneToOne /> -->
     </div>
 </template>
 
 <script>
+import audioMeeting from './components/audioMeeting.vue';
 import container from './components/container.vue';
 import oneToOne from './components/oneToOne.vue';
 import mulltiMetting from './components/mulltiMetting.vue';
@@ -14,6 +16,7 @@ import mulltiMetting from './components/mulltiMetting.vue';
 export default {
     name: 'App',
     components: {
+        audioMeeting,
         container,
         oneToOne,
         mulltiMetting,
