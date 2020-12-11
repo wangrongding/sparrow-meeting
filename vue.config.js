@@ -10,7 +10,7 @@ module.exports = {
     devServer: {
         host: "0.0.0.0",
         port: 9530,
-        // https: true,
+        https: true,
         /* https: {
             keys: fs.readFileSync("./127.0.0.1-key.pem"),
             cert: fs.readFileSync("./127.0.0.1.pem"),

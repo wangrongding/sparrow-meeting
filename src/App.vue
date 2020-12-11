@@ -1,18 +1,20 @@
 <template>
     <div id="app">
-        <!-- <container /> -->
-        <mulltiMetting />
+        <container />
+        <!-- <mulltiMetting /> -->
         <!-- <oneToOne /> -->
     </div>
 </template>
 
 <script>
+import container from './components/container.vue';
 import oneToOne from './components/oneToOne.vue';
 import mulltiMetting from './components/mulltiMetting.vue';
 
 export default {
     name: 'App',
     components: {
+        container,
         oneToOne,
         mulltiMetting,
     },

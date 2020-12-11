@@ -1,5 +1,6 @@
 <template>
     <div class="container">
+
         <el-drawer
             size="375"
             :visible.sync="drawerShow"
@@ -20,8 +21,13 @@
                 ></video>
             </div>
         </el-drawer>
+        
         <div class="handlebar">
-            <div class="handleItem" :style="isShowItem && { display: 'flex' }" @click="connect">
+            <div
+                class="handleItem"
+                :style="isShowItem && { display: 'flex' }"
+                @click="connect"
+            >
                 <i class="el-icon-position"></i>
                 <p>连接</p>
             </div>
@@ -73,7 +79,10 @@
                 <i class="el-icon-user-solid"></i>
                 <p>用户列表</p>
             </div>
-            <div class="handle-menu" @click="isShowItem = !isShowItem">
+            <div
+                class="handle-menu"
+                @click="isShowItem = !isShowItem"
+            >
                 <i class="el-icon-menu"></i>
             </div>
         </div>
@@ -82,12 +91,12 @@
 
 <script>
 export default {
-    name: "container",
+    name: 'container',
     data() {
         return {
             isShowItem: false,
             joinForm: {
-                roomId: "test",
+                roomId: 'test',
             },
             subject: null,
             loading: false,
@@ -100,9 +109,9 @@ export default {
             configuration: {
                 iceServers: [
                     {
-                        urls: ["turn:122.112.210.91:3478?transport=udp"],
-                        username: "lvlei",
-                        credential: "lvlei",
+                        urls: ['turn:122.112.210.91:3478?transport=udp'],
+                        username: 'lvlei',
+                        credential: 'lvlei',
                     },
                 ],
             },
@@ -117,7 +126,7 @@ export default {
         window.onbeforeunload = () => {
             Object.keys(this.pc).forEach(async (key) => {
                 await this.dc[key].send(
-                    JSON.stringify({ message: "close", data: this.localUserId })
+                    JSON.stringify({ message: 'close', data: this.localUserId })
                 );
                 this.pc[key].close();
                 this.pc[key] = null;
@@ -130,14 +139,12 @@ export default {
         /* 初始化WebSocket连接 */
         initSocket() {
             /* 随机生成用户ID */
-            this.localUserId = Math.random()
-                .toString(36)
-                .substr(2);
+            this.localUserId = Math.random().toString(36).substr(2);
 
             // 基于订阅，把房间id作为主题
-            this.subject = "private-video-room-" + this.joinForm.roomId;
+            this.subject = 'private-video-room-' + this.joinForm.roomId;
 
-            this.ws = new WebSocket("wss://webrtc.ncyymt.com:8877");
+            this.ws = new WebSocket('wss://webrtc.ncyymt.com:8877');
 
             /* 监听连接到信令服务器 */
             this.ws.onopen = () => {
@@ -148,11 +155,13 @@ export default {
             this.ws.onmessage = async (e) => {
                 /* 本地元数据为加载成功 用来屏蔽client-call事件 */
                 if (!this.localStream) {
-                    console.log("本地元数据未加载成功");
+                    console.log('本地元数据未加载成功');
                     return;
                 }
 
-                let { userId, targetUserId, sdpData, candidate } = JSON.parse(e.data).data;
+                let { userId, targetUserId, sdpData, candidate } = JSON.parse(
+                    e.data
+                ).data;
                 let event = JSON.parse(e.data).event;
                 if (this.localUserId == userId) {
                     return;
@@ -171,31 +180,34 @@ export default {
                 this.remoteUserId = userId;
 
                 switch (event) {
-                    case "client-call":
+                    case 'client-call':
                         this.offerOperation(this.remoteUserId);
                         break;
-                    case "client-offer":
+                    case 'client-offer':
                         this.handleRemoteOffer(sdpData, this.remoteUserId);
                         break;
-                    case "client-answer":
+                    case 'client-answer':
                         this.handleRemoteAnswer(sdpData, this.remoteUserId);
                         break;
-                    case "client-candidate":
-                        this.handleRemoteCandidate(candidate, this.remoteUserId);
+                    case 'client-candidate':
+                        this.handleRemoteCandidate(
+                            candidate,
+                            this.remoteUserId
+                        );
                         break;
                 }
             };
 
             /* 监听信令服务器抛出的错误 */
             this.ws.onerror = (e) => {
-                console.error("ws error", e);
+                console.error('ws error', e);
             };
         },
         //加入房间
         subscribe(subject) {
             this.ws.send(
                 JSON.stringify({
-                    cmd: "subscribe",
+                    cmd: 'subscribe',
                     subject,
                 })
             );
@@ -226,11 +238,11 @@ export default {
             //     );
         },
         openLocalStream(stream) {
-            const localVideo = document.getElementById("localVideo");
+            const localVideo = document.getElementById('localVideo');
             /* 指定视频/音频（audio/video）的元数据加载后触发 */
-            localVideo.addEventListener("loadedmetadata", () => {
+            localVideo.addEventListener('loadedmetadata', () => {
                 /* 告诉房间里的每个人(除了自己)我来了 */
-                this.publish("client-call", {
+                this.publish('client-call', {
                     userId: this.localUserId,
                 });
             });
@@ -259,24 +271,26 @@ export default {
                         userId: this.localUserId,
                         targetUserId: this.remoteUserId,
                     };
-                    this.publish("client-candidate", message);
+                    this.publish('client-candidate', message);
                 }
             };
             peer.ontrack = (e) => {
-                console.log("远程流加入到本地页面：", e);
+                console.log('远程流加入到本地页面：', e);
                 if (document.getElementById(remoteUserId)) {
                     return;
                 }
                 // const mainVideo = document.getElementById("mainVideo");
-                const remoteVidoe = document.createElement("video");
+                const remoteVidoe = document.createElement('video');
                 // mainVideo.srcObject = e.streams[0];
                 remoteVidoe.srcObject = e.streams[0];
                 remoteVidoe.id = remoteUserId;
-                remoteVidoe.className = "sideUser";
-                remoteVidoe.autoplay = "autoplay";
-                remoteVidoe.width = "375"
-                remoteVidoe.height = "250";
-                document.getElementsByClassName("sidebar")[0].appendChild(remoteVidoe);
+                remoteVidoe.className = 'sideUser';
+                remoteVidoe.autoplay = 'autoplay';
+                remoteVidoe.width = '375';
+                remoteVidoe.height = '250';
+                document
+                    .getElementsByClassName('sidebar')[0]
+                    .appendChild(remoteVidoe);
             };
             peer.ondatachannel = (e) => {
                 const channel = e.channel;
@@ -284,7 +298,7 @@ export default {
                     const data = JSON.parse(e.data);
                     console.log(data);
                     switch (data.message) {
-                        case "close":
+                        case 'close':
                             // document.getElementById("mainVideo").srcObject = null;
                             this.pc[data.data].close();
                             this.pc[data.data] = null;
@@ -307,7 +321,7 @@ export default {
                 userId: this.localUserId,
                 targetUserId: remoteUserId,
             };
-            await this.publish("client-offer", message);
+            await this.publish('client-offer', message);
 
             // this.pc[remoteUserId].createOffer().then(
             //   (desc) => {
@@ -343,7 +357,7 @@ export default {
                 userId: this.localUserId,
                 targetUserId: remoteUserId,
             };
-            await this.publish("client-answer", message);
+            await this.publish('client-answer', message);
             // this.pc[remoteUserId].createAnswer().then(
             //   (desc) => {
             //     this.pc[remoteUserId]
@@ -369,7 +383,9 @@ export default {
             await this.pc[remoteUserId].setRemoteDescription(sdpData);
         },
         async handleRemoteCandidate(candidate, remoteUserId) {
-            await this.pc[remoteUserId].addIceCandidate(new RTCIceCandidate(candidate));
+            await this.pc[remoteUserId].addIceCandidate(
+                new RTCIceCandidate(candidate)
+            );
         },
         closePc() {
             // document.getElementById("mainVideo").srcObject = null;
@@ -437,14 +453,14 @@ export default {
                         this.openLocalStream(stream);
                     },
                     (e) => {
-                        alert(e + "============getUserMedia");
+                        alert(e + '============getUserMedia');
                     }
                 );
         },
         // 发送websocket消息
         publish(event, data) {
             let jsonstr = JSON.stringify({
-                cmd: "publish",
+                cmd: 'publish',
                 subject: this.subject,
                 event: event,
                 data: data,
@@ -503,7 +519,7 @@ export default {
                 position: absolute;
                 left: 40px;
                 top: 0px;
-                content: "/";
+                content: '/';
                 color: #f56c6c;
                 margin: 0 auto;
                 font-size: 30px;

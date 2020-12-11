@@ -35,9 +35,11 @@
                         <el-button
                             :loading="loading"
                             type="primary"
-                            style="width:100%;height:40px;"
+                            style="width: 100%; height: 40px"
                             @click="join"
-                        >加入房间</el-button>
+                        >
+                            加入房间
+                        </el-button>
                     </el-form-item>
                 </el-form>
             </div>
@@ -50,7 +52,6 @@
                     muted="true"
                     autoplay
                 ></video>
-
             </div>
         </div>
         <el-drawer
@@ -81,14 +82,14 @@
                 <p>连接</p>
             </div>
             <div
-                :class="tempSignVideo?'handleItem':'handleItem disenabledBt'"
+                :class="tempSignVideo ? 'handleItem' : 'handleItem disenabledBt'"
                 @click="videoEnabledChange"
             >
                 <i class="el-icon-video-camera-solid"></i>
                 <p>视频</p>
             </div>
             <div
-                :class="tempSignAudio?'handleItem':'handleItem disenabledBt'"
+                :class="tempSignAudio ? 'handleItem' : 'handleItem disenabledBt'"
                 @click="audioEnabledChange"
             >
                 <i class="el-icon-microphone"></i>
@@ -108,16 +109,23 @@
                 <i class="el-icon-chat-line-round"></i>
                 <p>消息记录</p>
             </div>
-            <div
+            <!-- <div
                 class="handleItem closeBt"
                 @click="closePc"
+            >
+                <i class="el-icon-error"></i>
+                <p>退出</p>
+            </div> -->
+            <div
+                class="handleItem closeBt"
+                @click="sendMessage"
             >
                 <i class="el-icon-error"></i>
                 <p>退出</p>
             </div>
             <div
                 class="handleItem"
-                @click="drawerShow=!drawerShow"
+                @click="drawerShow = !drawerShow"
             >
                 <i class="el-icon-user-solid"></i>
                 <p>用户列表</p>
@@ -136,7 +144,7 @@ export default {
     data() {
         return {
             loading: false,
-            roomId: '',
+            roomId: '123',
             subject: null,
             JoinShow: true,
             localUserId: null,
@@ -276,14 +284,24 @@ export default {
             });
         },
         sendMessage() {
-            console.log('sendMessage', this.remoteUserId);
-            this.pcChannel.send(this.remoteUserId);
+            Object.keys(this.peerList).forEach((key) => {
+                console.log(key);
+                this.pcChannel[key].send({
+                    type: 'close',
+                    userId: this.localUserId,
+                });
+                // this.pcChannel[key].close();
+            });
         },
         closePc() {
-            this.pcChannel.send(this.remoteUserId);
-            for (let key in this.peerList) {
+            Object.keys(this.peerList).forEach((key) => {
+                console.log(key);
+                this.pcChannel[key].send({
+                    type: 'close',
+                    userId: this.localUserId,
+                });
                 this.peerList[key].close();
-            }
+            });
             this.peerList = null;
             // window.location.reload();
             /*  console.log('close?', this.peerList.connectionState);
@@ -293,7 +311,7 @@ export default {
             window.location.reload(); */
         },
         initSocket() {
-            // this.localUserId = Math.random().toString(36).substr(2);
+            this.localUserId = Math.random().toString(36).substr(2);
             // 基于订阅，把房间id作为主题
             this.subject = 'private-video-room-' + this.roomId;
             this.ws = new WebSocket('wss://webrtc.ncyymt.com:8877');
@@ -329,25 +347,15 @@ export default {
 
                 switch (event) {
                     case 'client-call':
-                        console.log('client-call==>', userId);
-                        !this.peerList[this.remoteUserId] &&
-                            this.createOfferAndSendMessage(userId);
+                        this.createOfferAndSendMessage(userId);
                         break;
                     case 'client-offer':
-                        console.log('client-offer==>', userId);
-                        !this.peerList[this.remoteUserId] &&
-                            this.handleRemoteOffer(sdp, userId);
+                        this.handleRemoteOffer(sdp, userId);
                         break;
                     case 'client-answer':
-                        this.peerList[this.remoteUserId] &&
-                            this.peerList[
-                                this.remoteUserId
-                            ].setRemoteDescription(
-                                new RTCSessionDescription({
-                                    type: 'answer',
-                                    sdp: sdp,
-                                })
-                            );
+                        this.peerList[this.remoteUserId].setRemoteDescription(
+                            sdp
+                        );
                         // debugger;
                         break;
                     case 'client-candidate':
@@ -362,13 +370,8 @@ export default {
         },
         async handleRemoteOffer(sdp, remoteUserId) {
             // set remote sdp
-            var sdpData = new RTCSessionDescription({
-                type: 'offer',
-                sdp: sdp,
-            });
             await this.createPc(this.localStream, remoteUserId);
-            this.remoteSdp[remoteUserId] = sdpData;
-            this.peerList[remoteUserId].setRemoteDescription(sdpData, () => {
+            this.peerList[remoteUserId].setRemoteDescription(sdp, () => {
                 this.peerList[remoteUserId].createAnswer().then(
                     (desc) => {
                         this.createAnswerAndSendMessage(desc, remoteUserId);
@@ -384,7 +387,7 @@ export default {
                 .setLocalDescription(desc)
                 .then(() => {
                     var message = {
-                        sdp: desc.sdp,
+                        sdp: desc,
                         userId: this.localUserId,
                         targetUserId: remoteUserId,
                     };
@@ -400,37 +403,35 @@ export default {
             );
         },
         createOfferAndSendMessage(remoteUserId) {
-            if (this.peerList[remoteUserId] == null) {
-                this.createPc(this.localStream, remoteUserId);
-                this.peerList[remoteUserId].createOffer().then(
-                    (desc) => {
-                        this.peerList[remoteUserId]
-                            .setLocalDescription(desc)
-                            .then(() => {
-                                var message = {
-                                    sdp: desc.sdp,
-                                    userId: this.localUserId,
-                                    targetUserId: remoteUserId,
-                                };
-                                this.publish('client-offer', message);
-                            })
-                            .catch((e) => {
-                                console.error('createOfferAndSendMessage', e);
-                            });
-                    },
-                    (err) => {
-                        console.error('CreateOffer error: ', err);
-                    }
-                );
-            }
+            this.createPc(this.localStream, remoteUserId);
+            this.peerList[remoteUserId].createOffer().then(
+                (desc) => {
+                    this.peerList[remoteUserId]
+                        .setLocalDescription(desc)
+                        .then(() => {
+                            var message = {
+                                sdp: desc,
+                                userId: this.localUserId,
+                                targetUserId: remoteUserId,
+                            };
+                            this.publish('client-offer', message);
+                        })
+                        .catch((e) => {
+                            console.error('createOfferAndSendMessage', e);
+                        });
+                },
+                (err) => {
+                    console.error('CreateOffer error: ', err);
+                }
+            );
         },
         initDataChannel(remoteUserId, peer) {
             this.pcChannel[remoteUserId] = peer.createDataChannel(remoteUserId);
+
             peer.ondatachannel = (e) => {
-                const channel = e.channel;
-                channel.onmessage = (e) => {
-                    const data = JSON.parse(e.data);
-                    console.log(data);
+                e.channel.onmessage = (e) => {
+                    console.log(e.data);
+                    /*  const data = JSON.parse(e.data);
                     switch (data.message) {
                         case 'close':
                             document.getElementById(
@@ -443,7 +444,7 @@ export default {
                             break;
                         default:
                             break;
-                    }
+                    } */
                 };
             };
         },
@@ -476,7 +477,7 @@ export default {
             };
             //监听连接状态
             peer.onconnectionstatechange = (e) => {
-                this.handleConnectionstatechange(e);
+                this.handleConnectionstatechange(e, remoteUserId);
             };
             const tracks = localStream.getTracks();
             for (let i = 0; i < tracks.length; i++) {
@@ -495,19 +496,19 @@ export default {
         handleRemoteStreamRemoved(e) {
             // console.log('onremovestream***', e);
         },
-        handleConnectionstatechange(e) {
-            switch (this.peerList[this.remoteUserId].connectionState) {
+        handleConnectionstatechange(e, remoteUserId) {
+            switch (this.peerList[remoteUserId].connectionState) {
                 case 'connected':
                     break;
                 case 'disconnected':
                     this.$message({
                         type: 'warning',
-                        message: '连接中断!',
+                        message: `{$}连接中断!`,
                     });
-                    document.getElementById(this.remoteUserId).remove();
-                    document
-                        .getElementById('mainVideo')
-                        .srcObject.getVideoTracks()[0].enabled = false;
+                    document.getElementById(remoteUserId).remove();
+                    // document
+                    //     .getElementById('mainVideo')
+                    //     .srcObject.getVideoTracks()[0].enabled = false;
                     break;
                 case 'failed':
                     break;
@@ -606,8 +607,8 @@ export default {
             border-radius: 30px;
             padding: 25px 40px;
             float: right;
-            margin-top: 300px;
-            margin-right: 200px;
+            margin-top: 10%;
+            margin-right: 5%;
             img {
                 width: 50px;
             }
