@@ -16,7 +16,6 @@
                     class="sideUser"
                     id="localVideo"
                     controls
-                    muted="true"
                     autoplay
                     v-show="localStream"
                 ></audio>
@@ -97,7 +96,7 @@ export default {
         return {
             isShowItem: false,
             joinForm: {
-                roomId: 'test',
+                roomId: 'test11',
             },
             subject: null,
             loading: false,
@@ -215,13 +214,18 @@ export default {
         },
         //连接音视频
         async connect() {
-            if (!this.localStream) {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: false,
+            });
+            this.openLocalStream(stream);
+            /* if (!this.localStream) {
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: true,
                     video: false,
                 });
                 this.openLocalStream(stream);
-            }
+            } */
         },
         openLocalStream(stream) {
             const localVideo = document.getElementById('localVideo');
@@ -233,6 +237,7 @@ export default {
                 });
             });
             localVideo.srcObject = stream;
+            localVideo.muted = true;
             this.localStream = stream;
         },
         async offerOperation(remoteUserId) {
@@ -281,7 +286,7 @@ export default {
                 const channel = e.channel;
                 channel.onmessage = (e) => {
                     const data = JSON.parse(e.data);
-                    console.log(data);
+                    console.log('message', data);
                     switch (data.message) {
                         case 'close':
                             this.pc[data.data].close();
